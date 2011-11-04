@@ -1,0 +1,508 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN"
+  "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en">
+<head>
+	<title>flickr</title>
+	<meta http-equiv="content-type" content="text/html;charset=utf-8" />
+	<script type="text/javascript" src="http://ajax.googleapis.com/ajax/libs/jquery/1.3.2/jquery.min.js"></script>
+	<script type="text/javascript">
+		var searchbar_height = 110;
+		var thumb_width = 280;
+		var thumb_height = 280;
+
+		var cols_count = Math.round(window.innerWidth/thumb_width);
+		var rows_count = Math.round((window.innerHeight-searchbar_height)/thumb_height);
+		var per_page = cols_count*rows_count;
+
+		if (per_page < 6)
+			per_page = 6;
+	
+		var api_key = 'e5b29317097c764a2442b231e07bdaf9';
+		//var per_page = 20;
+		var search_query= '';
+		var search_type = 'text';
+		var pager_count = 7;
+		var pages_count = -1;
+		var page_current = -1;
+		var overlay_current;
+
+		function flickrGet(api_url) {
+			var flickr_block = $('#images');
+			flickr_block.html('<li class="wait">Loading...</li>');
+					
+			$.getJSON(api_url, function(data){
+				pages_count = data.photos.pages;
+				page_current = data.photos.page;
+			
+				flickr_block.empty();
+				
+				makePager(data.photos.page, data.photos.pages);
+				
+				$.each(data.photos.photo, function(i,item){
+					var photoURL = 'http://farm' + item.farm + '.static.flickr.com/' + item.server + '/' + item.id + '_' + item.secret;
+					
+					var img = $('<img/>').attr('src', photoURL + '_m.jpg').data('id', item.id);
+					var anchor = $('<a/>').attr('href', photoURL + '.jpg').append(img);
+					
+					img.load(function(){
+						$(this).fadeIn('slow');
+					});
+					
+					img.click(function(){
+						show($(this));
+						return false;
+					});
+					
+					$('<li/>').append(anchor).appendTo(flickr_block);
+				});
+
+				if ($('#overlay').css('display') != 'none') {
+					show($('li:first img', flickr_block));
+				}
+			});
+		}
+
+		function show(object) {
+			overlay_current = object;
+		
+			var url = object.parent().attr('href');
+			flickrGetInfo(object.data('id'));
+			$('#overlay').find('img').attr('src', url).load(function(){
+				$('#overlay .next, #overlay .prev').addClass('loading');
+
+				$('#overlay').show();
+
+				// preload next & prev
+				var $li = overlay_current.parents('li');
+				var $next = $li.next();
+				if ($next.size() == 1) {
+					$('<img/>').attr('src', $next.find('a').attr('href')).load(function(){
+						$('#overlay .next').removeClass('loading');
+					});
+				}
+				var $prev = $li.prev();
+				if ($prev.size() == 1) {
+					$('<img/>').attr('src', $prev.find('a').attr('href')).load(function(){
+						$('#overlay .prev').removeClass('loading');
+					});
+				}
+			}).click(function(){
+				$('#overlay').hide();
+			});
+		}
+
+		function flickrGetInfo(photo_id) {
+			var api_url = 'http://api.flickr.com/services/rest/'
+				+'?method=flickr.photos.getInfo'
+				+'&api_key='+api_key
+				+'&photo_id='+photo_id
+				+'&format=json'
+				+'&jsoncallback=?';
+			$('#overlay p.info').html('Loading...');
+			$.getJSON(api_url, function(data){
+				var item = data.photo;
+				var pageURL = 'http://www.flickr.com/photos/' + item.owner.nsid + '/' + item.id;
+				var photoURL = 'http://farm' + item.farm + '.static.flickr.com/' + item.server + '/' + item.id + '_' + item.secret + '_m.jpg';
+				var originalURL = 'http://farm' + item.farm + '.static.flickr.com/' + item.server + '/' + item.id + '_' + item.originalsecret + '_o.' + item.originalformat;
+				var tineyeURL = 'http://tineye.com/search?pluginver=bookmark_1.0&url=' + encodeURIComponent(photoURL);
+
+				var $title = $('#overlay .title').empty();
+
+				if (item.originalsecret) {
+					$('<a/>').attr('href', originalURL).text('original').addClass('action').attr('target', '_blank').appendTo($title);
+					$title.append(' | ');
+				}
+				if (item.title._content) {
+					$('<a/>').attr('href', pageURL).text(item.title._content).attr('target', '_blank').appendTo($title);
+					$title.append(' | ');
+				}
+				$('<a/>').attr('href', tineyeURL).text('tineye').addClass('action').attr('target', '_blank').appendTo($title);
+				
+				var $tags = $('#overlay .tags').empty();
+				for (var i=0; i < item.tags.tag.length; i++) {
+					var tag = item.tags.tag[i]._content;
+
+					if (i == 0)
+						$tags.append('tags: ');
+					else
+						$tags.append(' ');
+
+					var anchor = $('<a/>').attr('href', '#tags:'+tag).text(tag).click(function(){
+						$('#query').val($(this).text());
+						search();
+						return false;
+					});
+
+					$tags.append(anchor);
+				}
+
+				var $span = $('<span/>').hide();
+				var $tentag = $('a', $tags).eq(10);
+				$tentag.nextAll().wrapAll($span);
+				$('<a/>').attr('href', '#').text('more').addClass('more').click(function(){
+					$(this).next().show();
+					$(this).remove();
+					return false;
+				}).insertAfter($tentag);
+			});
+			return false;
+		}
+		
+		function makePager(page, pages) {
+			$('#search .prev, #search .next').show();
+			var pages_block = $('#pages').empty();
+			
+			if (page > pager_count+1)
+				pages_block
+					.append($('<a/>').attr('href', '#').text(1))
+					.append('<span>...</span>');
+			
+			for (var i=page-pager_count; i<=pages && i<=page+pager_count; i++) {
+				if (i < 1)
+					continue;
+				
+				$('<a/>').attr('href', '#').text(i).appendTo(pages_block);
+			}
+
+			if (pages > page+pager_count)
+				pages_block
+					.append('<span>...</span>')
+					.append($('<a/>').attr('href', '#').text(pages));
+					
+			$('a', pages_block).each(function(){
+				if (page == $(this).text()) {
+					$(this).addClass('current');
+					return false;
+				}
+			}).click(function(){
+				flickrSearch(search_query, $(this).text());
+				return false;
+			});
+		}
+
+		function flickrSearch(query, page){
+			search_query = query;
+
+			window.location.hash = search_type + ':' + search_query;
+			
+			flickrGet('http://api.flickr.com/services/rest/'
+				+'?method=flickr.photos.search'
+				+'&api_key='+api_key
+				+'&'+search_type+'='+search_query
+				+'&per_page='+per_page
+				+'&page='+page
+				+'&format=json'
+				+'&jsoncallback=?');
+		}
+
+		function searchType(object, value, page) {
+			$(object).addClass('current').siblings().removeClass('current');
+			search_type = value;
+			flickrSearch(search_query, 1);
+			return false;
+		}
+
+		function search() {
+			flickrSearch($('#query').val(), 1)
+		}
+
+		$(function(){
+			var params = new Array();
+			var s = window.location.hash.substr(1).split('/');
+			for (i=0; i<s.length; i++) {
+				var tmp = s[i].split(':');
+				params[tmp[0]] = tmp[1];
+			}
+		
+			$('#search').submit(function(){
+				search();
+				return false;
+			});
+			$('#overlay').click(function(e){
+				if (e.target.tagName != 'A') {
+					$(this).hide();
+					return false;
+				}
+				return true;
+			});
+			$(document).keypress(function(e){
+				if (e.keyCode == 13)
+					return true;
+				
+				var is_overlay = ($('#overlay').css('display') != 'none');
+				
+				switch (e.keyCode) {
+					case 13:
+						if (is_overlay)
+							$('#overlay').hide();
+						break;
+					case 37:
+						if (is_overlay)
+							overlayPrev();
+						else
+							pagePrev();
+						break;
+					case 39:
+						if (is_overlay)
+							overlayNext();
+						else
+							pageNext();
+						break;
+				}
+
+				return true;
+			});
+
+			if (params['page'])
+				page_current = parseInt(params['page']);
+
+			if (params['text']) {
+				search_query = params['text'];
+				$('#query').val(search_query);
+				searchType($('#type a:eq(0)'), 'tags');
+			}
+
+			if (params['tags']) {
+				search_query = params['tags'];
+				$('#query').val(search_query);
+				searchType($('#type a:eq(1)'), 'tags');
+			}
+		});
+
+		function pagePrev() {
+			flickrSearch(search_query, page_current-1);
+			return false;
+		}
+
+		function pageNext() {
+			flickrSearch(search_query, page_current+1);
+			return false;
+		}
+
+		function overlayPrev() {
+			if (overlay_current.parents('li').prev('li').html() == null) {
+				pagePrev();
+			} else {
+				show(overlay_current.parents('li').prev().find('img'));
+			}
+			show(overlay_current.parents('li').prev().find('img'));
+			return false;
+		}
+
+		function overlayNext() {
+			if (overlay_current.parents('li').next('li').html() == null) {
+				pageNext();
+			} else {
+				show(overlay_current.parents('li').next().find('img'));
+			}
+			return false;
+		}
+	</script>
+	<style type="text/css">
+		body {
+			margin: 0;
+			font: 15px Arial;
+		}
+		#search {
+			padding-top: 12px;
+			background: #eee;
+			text-align: center;
+		}
+		input {
+			font-size: 10pt;
+		}
+		a img {
+			display: none;
+			padding: 1px;
+			background: #ccc;
+			border: 5px solid #eee;
+		}
+		a:hover img {
+			border-color: #37c;
+		}
+		#images {
+			overflow: hidden;
+			list-style: none;
+			margin-top: 1em;
+			padding-left: 0;
+			text-align: center;
+			line-height: 250px;
+			z-index: 1;
+		}
+		#images li {
+			display: inline-block;
+			margin: 15px;
+			width: 240px;
+		}
+		#images li.wait {
+			color: #ccc;
+			font-weight: bold;
+		}
+		#images li img {
+			vertical-align: middle;
+		}
+		#overlay {
+			display: none;
+			position: fixed;
+			top: 0;
+			left: 0;
+			right: 0;
+			bottom: 0;
+			background: rgba(0, 0, 0, 0.8);
+			text-align: center;
+			z-index: 2;
+		}
+		#overlay div {
+			position: relative;
+			display: inline-block;
+			margin: 8% auto 0;
+			padding: 5px 10px;
+			width: 500px;
+			background: rgba(255, 255, 255, 0.2);
+			line-height: 0;
+			white-space: normal;
+		}
+		#overlay p {
+			margin: 8px 40px;
+			line-height: normal;
+			color: #999;
+			word-wrap: break-word;
+		}
+		#overlay p.info {
+			margin: 8px 40px;
+		}
+		#overlay p.tags {
+			margin: 8px 10px;
+		}
+		#overlay a {
+			padding: 2px 5px;
+			color: white;
+			text-decoration: none;
+		}
+		#overlay a.action,
+		#overlay a.more {
+			background: #ff0088;
+		}
+		#overlay a:hover {
+			color: white;
+			background: #0066dd;
+		}
+		#overlay .loading {
+			color: #999999;
+			background: #333333;
+		}
+		#overlay .prev,
+		#overlay .next {
+			position: absolute;
+			line-height: 20px;
+			top: 10px;
+		}
+		#overlay .prev {
+			left: 10px;
+		}
+		#overlay .next {
+			right: 10px;
+		}
+		#pages {
+			margin-top: 4px;
+			padding: 4px;
+			font-size: 12px;
+			border-bottom: 2px solid #ddd;
+		}
+		#pages a {
+			padding: 4px 10px;
+			color: #999;
+			text-decoration: none;
+			border-bottom: 2px solid #ddd;
+		}
+		#pages a:hover {
+			color: #ff0088;
+			border-color: #999;
+			background: #e6e6e6;
+		}
+		#pages a.current {
+			font-weight: bold;
+			text-decoration: none;
+			color: #0066dd;
+			background: white;
+			border-color: white;
+		}
+		#logo {
+			margin-bottom: 2px;
+			font: bold 24px Arial;
+		}
+		#logo a {
+			color: #0066dd;
+			text-decoration: none;
+		}
+		#logo a span {
+			color: #ff0088;
+		}
+		#type {
+			display: inline;
+			padding-top: 2px;
+			padding-bottom: 10px;
+			font-size: 13px;
+		}
+		#type a {
+			padding: 2px 5px;
+			color: #666;
+			text-decoration: none;
+		}
+		#type a:hover {
+			color: #ff0088;
+			background: #e6e6e6;
+		}
+		#type a.current {
+			color: #fff;
+			background: #0066dd;
+		}
+		#search .prev,
+		#search .next {
+			display: none;
+			margin: 0 10px;
+			padding: 0 5px 5px;
+			font-size: 54px;
+			color: #0066dd;
+			text-decoration: none;
+		}
+		#search .prev {
+			float: left;
+		}
+		#search .next {
+			float: right;
+		}
+		#search .prev:hover,
+		#search .next:hover {
+			color: #ff0088;
+			background: #e6e6e6;
+		}
+	</style>
+</head>
+<body>
+	<div id="overlay">
+		<div>
+			<a class="prev" href="#" onclick="return overlayPrev()">&larr;</a>
+			<a class="next" href="#" onclick="return overlayNext()">&rarr;</a>
+			<p class="title">Loading...</p>
+			<img src="http://farm4.static.flickr.com/3102/3180284217_e2ba0e42b0.jpg" />
+			<p class="tags"></p>
+		</div>
+	</div>
+	<form id="search" action="#">
+		<a class="prev" href="#" onclick="return pagePrev()">&larr;</a>
+		<a class="next" href="#" onclick="return pageNext()">&rarr;</a>
+		<div id="logo">
+			<a href="http://flickr.com">flick<span>r</span></a>
+		</div>
+		<div id="type">
+			<a href="#" onclick="return searchType(this,'text')" class="current">text</a>
+			<a href="#" onclick="return searchType(this,'tags')">tags</a>
+		</div>
+		<input type="text" id="query" value="" size="40"  />
+		<input type="button" onclick="search()" value="Search" />
+		<div id="pages"></div>
+	</form>
+	<ul id="images"></ul>
+</body>
+</html>
